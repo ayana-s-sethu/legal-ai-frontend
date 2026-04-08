@@ -3,8 +3,10 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 
-# Load API key
+# Load environment variables
 load_dotenv()
+
+# Initialize Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # Page config
@@ -14,15 +16,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS (better UI)
+# UI Styling
 st.markdown("""
 <style>
-body {
-    background-color: #0E1117;
-    color: white;
-}
 .big-title {
-    font-size: 42px;
+    font-size: 40px;
     font-weight: bold;
     color: #4CAF50;
 }
@@ -35,27 +33,16 @@ body {
 """, unsafe_allow_html=True)
 
 # Title
-st.markdown('<p class="big-title">⚖️ Legal AI Assistant</p>', unsafe_allow_html=True)
-st.write("Analyze legal documents with AI-powered insights.")
+st.markdown('<p class="big-title">⚖️ Legal AI Assistant (Strict RAG)</p>', unsafe_allow_html=True)
+st.write("Upload a legal document and ask questions strictly based on it.")
 
-# Layout
-col1, col2 = st.columns(2)
+# Upload
+uploaded_file = st.file_uploader("📄 Upload Document", type=["pdf", "txt"])
 
-with col1:
-    uploaded_file = st.file_uploader("📄 Upload Document", type=["pdf", "txt"])
+# Question
+question = st.text_input("❓ Ask a question about the document")
 
-with col2:
-    question = st.text_input("❓ Ask your question")
-
-# Features
-mode = st.checkbox("📚 Beginner Mode (Simple Explanation)")
-show_preview = st.checkbox("👁 Show Document Preview")
-save_history = st.checkbox("💾 Save Chat History")
-
-# Chat history
-if "history" not in st.session_state:
-    st.session_state.history = []
-
+# Process
 if uploaded_file and question:
     content = ""
 
@@ -68,19 +55,21 @@ if uploaded_file and question:
     else:
         content = uploaded_file.read().decode("utf-8")
 
-    # Beginner mode
-    extra = "Explain in very simple terms." if mode else ""
+    # Safety check
+    if len(content.strip()) < 50:
+        st.warning("⚠️ Document is empty or too small.")
+        st.stop()
 
-    # Prompt
+    # 🔥 STRICT PROMPT
     prompt = f"""
-You are a Professional Legal Document Assistant.
+You are a strict Legal Document Assistant.
 
 Rules:
-- Answer ONLY using the document
-- Do NOT hallucinate
-- Be clear and structured
-
-{extra}
+1. Answer ONLY using the provided document.
+2. If the answer is NOT found in the document, say exactly:
+   "The answer is not available in the provided document."
+3. Do NOT use any external knowledge.
+4. Always include a direct quote from the document as citation.
 
 Document:
 {content[:3000]}
@@ -95,44 +84,27 @@ Direct Quote:
 Reference:
 """
 
-    # AI response (with fallback model)
+    # AI response
     with st.spinner("⚖️ Analyzing document..."):
         try:
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0.0
             )
         except:
-            # fallback model (no crash)
+            # fallback model
             response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+                temperature=0.0
             )
 
     answer = response.choices[0].message.content
 
-    # Save history
-    if save_history:
-        st.session_state.history.append((question, answer))
-
-    # Display answer
-    st.subheader("📄 Answer")
-    st.markdown(f"<div class='card'>{answer}</div>", unsafe_allow_html=True)
-
-    # Download
-    st.download_button("📥 Download Answer", answer)
-
-    # Document preview
-    if show_preview:
-        st.subheader("📄 Document Preview")
-        st.write(content[:1000])
-
-# Show history
-if save_history and st.session_state.history:
-    st.subheader("🧠 Chat History")
-    for q, a in st.session_state.history:
-        st.write("**Q:**", q)
-        st.write("**A:**", a)
-        st.markdown("---")
+    # 🔥 FINAL FILTER
+    if "not available in the provided document" in answer.lower():
+        st.error("❌ This question is not answered in the uploaded document.")
+    else:
+        st.success("✅ Answer based on document")
+        st.markdown(f"<div class='card'>{answer}</div>", unsafe_allow_html=True)
